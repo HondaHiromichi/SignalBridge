@@ -1,13 +1,14 @@
 # SignalBridge 作業マップ (WORKLOG)
 
 > 別マシンでの作業再開用ドキュメント. セッションをまたぐ作業状況・設計方針・次タスクを記録する.
-> 最終更新: 2026-06-03 (dev ブランチ)
+> 最終更新: 2026-06-04 (dev ブランチ)
 
 ---
 
-## 明日の最初のタスク: 動作確認 (Step B の自己ループバック疎通)
+## 次のタスク: Step C (Phase 0 のプロセス間ループバック)
 
-実装はコミット済みだが, **実機 Play モードでの動作確認が未実施**. ここから再開する.
+> **Step B (自己ループバック疎通) は 2026-06-04 に Play で確認済み.** 下記「動作確認手順」は
+> 再確認用に残す. 次は Step C (python-osc エコーで別プロセス疎通) に進む.
 
 ### 事前準備 (別マシン)
 1. `git pull` で `origin/dev` を取得 (本作業は dev ブランチ. main ではない)
@@ -17,12 +18,12 @@
      + Claude Code 再起動が要る. **動作確認自体は Unity エディタ単体で手動実行できる** (MCP 不要)
 
 ### 動作確認手順 (python 不要. Unity が自分宛に送って自分で受ける)
-1. シーン `Assets/SignalBridge/Scenes/OscDemo.unity` を開く
+1. シーン `Assets/Scenes/OscDemo.unity` を開く (起動時に自動で開く設定済み)
 2. **Play** ボタンを押す
 3. UI の **`Listen` トグルを ON** -> ログに `LISTEN start :9000`
 4. **`Send` ボタン**を押す (127.0.0.1:9000 へ `/ping` int 1 を送信)
-5. 期待されるログ:
-   - `SEND -> 127.0.0.1:9000 /ping (16 bytes) hex=2f706e67...`
+5. 期待されるログ (2026-06-04 の実測値):
+   - `SEND -> 127.0.0.1:9000 /ping (16 bytes) hex=2f70696e670000002c69000000000001`
    - `RECV /ping ,i args=[1]` <- 送った内容が受信・デコードされて返る
 6. `Listen` を OFF にして Play 停止
 
@@ -44,8 +45,8 @@
 |------|------|------|
 | 環境 | Unity 6.4 (URP) / Unity MCP 導入 / dev ブランチ運用 / 不要パッケージ整理 | 完了 |
 | A | 再利用 OSC コア (encode/decode + UDP 送受信) + EditMode テスト | 完了 (テスト 4 件 pass) |
-| B | UI 仲介 (OscConnectionTester) + uGUI シーン (OscDemo) | 実装・配線完了 / **実機動作確認は未実施** |
-| C | Phase 0 ループバック (python-osc エコー) | 未着手 |
+| B | UI 仲介 (OscConnectionTester) + uGUI シーン (OscDemo) | 完了 (自己ループバック疎通を Play で確認. SEND/RECV 一致, 2026-06-04) |
+| C | Phase 0 ループバック (python-osc エコー) | 未着手 (次タスク) |
 | Phase 1 | 実機 Flair 送信でアーム起動 | 未着手 (OSC 仕様未確定で保留) |
 
 ---
@@ -80,6 +81,16 @@
 - **新 Input System 環境** (`activeInputHandler: 1`) のため, EventSystem は
   **`InputSystemUIInputModule`** を使う (StandaloneInputModule だとクリックが効かない).
 
+### シーンファイルの churn 対策 (重要)
+- uGUI シーンは, ScrollRect/ContentSizeFitter/LayoutGroup の **駆動値が保存ごとに再計算・直列**
+  され, マシン (解像度) や保存タイミングで非決定的に変わる "churn" が出やすい.
+- 対策として OscDemo では以下を設定済み:
+  - **CanvasScaler = Scale With Screen Size** (基準 800x600, Match 0.5). Constant Pixel Size だと
+    Game ビュー解像度に直結し, 別マシンで開くたびに全 UI レイアウトが変わるため.
+  - **ScrollRect の Scrollbar Visibility = AutoHide** (AutoHideAndExpandViewport ではない).
+    Viewport を動的拡張するとスクロールバー矩形やつまみサイズが churn するため.
+- 上記で「開くだけ」では差分ゼロ, 再保存しても駆動値が安定 (固定点に収束) することを確認済み.
+
 ### コミット運用
 - Unity が自動生成・移行するファイル (URP アセットのバージョン移行, SceneTemplateSettings 等)
   は, 機能の成果物とは **別コミット**に分離する (履歴を読みやすく保つため).
@@ -90,20 +101,24 @@
 ## ファイル構成 (現状)
 
 ```
-Assets/SignalBridge/
-├─ OscConnectionTester.cs       UI 仲介 MonoBehaviour (Assembly-CSharp, namespace なし)
+Assets/
 ├─ Scenes/
-│   └─ OscDemo.unity            疎通確認シーン (Canvas + uGUI + 配線済み)
-└─ Osc/                         再利用コア (asmdef, noEngineReferences, namespace SignalBridge.Osc)
-    ├─ SignalBridge.Osc.asmdef
-    ├─ MinimalOsc.cs            encode/decode の static ヘルパ
-    ├─ OscMessage.cs            受信メッセージの不変データ
-    ├─ OscUdpSender.cs          UDP 送信 (plain class, IDisposable)
-    ├─ OscUdpListener.cs        別スレッド受信 + ConcurrentQueue, TryDequeue/OnError
-    └─ Tests/
-        ├─ SignalBridge.Osc.Tests.asmdef
-        └─ MinimalOscTests.cs   EditMode テスト 4 件
+│   └─ OscDemo.unity            疎通確認シーン (Canvas + uGUI + 配線済み. ビルド/起動シーン)
+└─ SignalBridge/
+    ├─ OscConnectionTester.cs   UI 仲介 MonoBehaviour (Assembly-CSharp, namespace なし)
+    └─ Osc/                     再利用コア (asmdef, noEngineReferences, namespace SignalBridge.Osc)
+        ├─ SignalBridge.Osc.asmdef
+        ├─ MinimalOsc.cs        encode/decode の static ヘルパ
+        ├─ OscMessage.cs        受信メッセージの不変データ
+        ├─ OscUdpSender.cs      UDP 送信 (plain class, IDisposable)
+        ├─ OscUdpListener.cs    別スレッド受信 + ConcurrentQueue, TryDequeue/OnError
+        └─ Tests/
+            ├─ SignalBridge.Osc.Tests.asmdef
+            └─ MinimalOscTests.cs   EditMode テスト 4 件
 ```
+
+> シーンは `Assets/Scenes/OscDemo.unity` に配置 (`Assets/Scenes/` は OscDemo のみ).
+> デフォルトの SampleScene は削除済み. アプリ層のコードと再利用コアは `Assets/SignalBridge/` 配下.
 
 OscDemo シーンの UI -> OscConnectionTester の SerializeField は配線済み
 (IP/Port/Address/引数型/引数値/Send/Listen/受信 Port/ログ Text/ログ ScrollRect).
@@ -122,6 +137,7 @@ Fix: Correct render pipeline to URP in project CLAUDE.md
 Add: Reusable OSC core module (encode/decode, UDP send/receive)   <- Step A
 Add: OSC connection tester UI scene and mediator                 <- Step B
 Update: Migrate URP pipeline assets to v13 and add scene template settings
+Refactor: Relocate OscDemo scene to Assets/Scenes and fix uGUI scene churn
 ```
 
 ---
