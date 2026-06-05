@@ -1,0 +1,6 @@
+# SignalBridge Phase 0 検証ツール (tools/osc_echo.py) の依存.
+# 導入例 (tools/ 配下に venv を作る場合):
+#   python -m venv tools/.venv
+#   tools/.venv/Scripts/python -m pip install -r tools/requirements.txt   # Windows
+#   tools/.venv/bin/python    -m pip install -r tools/requirements.txt    # macOS/Linux
+python-osc>=1.8

@@ -1,14 +1,15 @@
 # SignalBridge 作業マップ (WORKLOG)
 
 > 別マシンでの作業再開用ドキュメント. セッションをまたぐ作業状況・設計方針・次タスクを記録する.
-> 最終更新: 2026-06-04 (dev ブランチ)
+> 最終更新: 2026-06-05 (dev ブランチ)
 
 ---
 
-## 次のタスク: Step C (Phase 0 のプロセス間ループバック)
+## 次のタスク: Phase 1 (実機 Flair 送信) — OSC 仕様確定待ち
 
-> **Step B (自己ループバック疎通) は 2026-06-04 に Play で確認済み.** 下記「動作確認手順」は
-> 再確認用に残す. 次は Step C (python-osc エコーで別プロセス疎通) に進む.
+> **Step B (自己ループバック) は 2026-06-04, Step C (Phase 0 プロセス間ループバック) は 2026-06-05 に
+> いずれも Play で確認済み.** 下記「動作確認手順」「Step C 検証手順」は再確認用に残す.
+> 次は Phase 1 (実機 Flair) だが, ムーブ起動の OSC 仕様が未確定 (メーカー確認待ち) のため保留中.
 
 ### 事前準備 (別マシン)
 1. `git pull` で `origin/dev` を取得 (本作業は dev ブランチ. main ではない)
@@ -30,12 +31,18 @@
 -> これで encode -> UDP 送信 -> 別スレッド受信 -> decode -> メインスレッド反映 の一連が確認できる.
    うまくいかない場合はログの内容 (例外メッセージ等) を確認する.
 
-### 動作確認 OK のあとの選択肢 (Step C)
-- **C-1 (推奨)**: python-osc エコーサーバ (`tools/osc_echo.py` 等) を用意し,
-  Unity -> 別プロセス -> Unity のプロセス間 UDP 疎通を確認 (Phase 0 本来の形).
-  `python-osc` 未導入なら `pip install python-osc`. スクリプトをリポジトリに含めるかは要相談.
-- **Phase 1 (実機 Flair)** は, ムーブ起動の OSC アドレス/引数が未確定 (メーカー確認待ち) のため,
-  情報が揃ってから. それまでは送信先 IP/Port/Address/引数を UI から可変にした現状で待機.
+### Step C 検証手順 (python-osc エコー, 2026-06-05 確認済み)
+プロセス間ループバック. エコーサーバ `tools/osc_echo.py` (python-osc) が別プロセスとして待受け,
+Unity の送信を解釈して送り返す. 同一 PC でポート衝突を避けるため送受で別ポートにする.
+1. venv 準備 (初回のみ): `python -m venv tools/.venv` 後 `tools/requirements.txt` を pip install
+2. エコーサーバ起動: `tools/.venv/Scripts/python tools/osc_echo.py` (既定: 9000 受信 / 9001 返送)
+3. Unity Play -> 宛先 Port `9000` / 受信 Port `9001` / Listen ON -> Send
+4. 期待: Unity 側 `RECV /ping ,i args=[1]`, サーバ側 `RECV /ping [1] -> echo to 127.0.0.1:9001`
+-> Unity -> 別プロセス -> Unity の往復 + 第三者実装 (python-osc) が自作エンコードを解釈できることを確認.
+
+### Phase 1 (実機 Flair) について
+- ムーブ起動の OSC アドレス/引数が未確定 (メーカー確認待ち) のため保留. 情報が揃い次第,
+  UI の 宛先 IP/Port/Address/引数 を実機値に差し替えるだけで接続できる設計.
 
 ---
 
@@ -46,7 +53,7 @@
 | 環境 | Unity 6.4 (URP) / Unity MCP 導入 / dev ブランチ運用 / 不要パッケージ整理 | 完了 |
 | A | 再利用 OSC コア (encode/decode + UDP 送受信) + EditMode テスト | 完了 (テスト 4 件 pass) |
 | B | UI 仲介 (OscConnectionTester) + uGUI シーン (OscDemo) | 完了 (自己ループバック疎通を Play で確認. SEND/RECV 一致, 2026-06-04) |
-| C | Phase 0 ループバック (python-osc エコー) | 未着手 (次タスク) |
+| C | Phase 0 ループバック (python-osc エコー) | 完了 (tools/osc_echo.py で別プロセス疎通を確認. 両側ログ一致, 2026-06-05) |
 | Phase 1 | 実機 Flair 送信でアーム起動 | 未着手 (OSC 仕様未確定で保留) |
 
 ---
@@ -120,6 +127,14 @@ Assets/
 > シーンは `Assets/Scenes/OscDemo.unity` に配置 (`Assets/Scenes/` は OscDemo のみ).
 > デフォルトの SampleScene は削除済み. アプリ層のコードと再利用コアは `Assets/SignalBridge/` 配下.
 
+検証ツール (リポジトリ直下 `tools/`, Unity 外):
+```
+tools/
+├─ osc_echo.py        Phase 0 用 OSC エコーサーバ (python-osc)
+├─ requirements.txt   依存 (python-osc)
+└─ .venv/             仮想環境 (gitignore. requirements.txt から再現)
+```
+
 OscDemo シーンの UI -> OscConnectionTester の SerializeField は配線済み
 (IP/Port/Address/引数型/引数値/Send/Listen/受信 Port/ログ Text/ログ ScrollRect).
 デフォルト値: IP 127.0.0.1 / 送受信 Port とも 9000 / Address /ping / 引数 int 1.
@@ -138,6 +153,7 @@ Add: Reusable OSC core module (encode/decode, UDP send/receive)   <- Step A
 Add: OSC connection tester UI scene and mediator                 <- Step B
 Update: Migrate URP pipeline assets to v13 and add scene template settings
 Refactor: Relocate OscDemo scene to Assets/Scenes and fix uGUI scene churn
+Add: OSC echo server (tools/osc_echo.py) for Phase 0 loopback verification   <- Step C
 ```
 
 ---
@@ -145,6 +161,5 @@ Refactor: Relocate OscDemo scene to Assets/Scenes and fix uGUI scene churn
 ## 未確定・要確認事項
 - Flair のムーブ起動 OSC アドレス文字列・引数・受信側設定は **未確定** (購入元/メーカー確認待ち).
   確定したら UI の値を差し替えるだけで実機接続できる設計にしてある.
-- Step C で python エコースクリプトをリポジトリに含めるか, ローカル管理にするかは未決定.
 - 参照資料 (リポジトリ外, ローカル管理): `HANDOFF_Unity-Flair-OSC-Demo.md`,
   `Flair連携_OSC_API_確認質問リスト.pdf`, Flair v7.4 Operator's Manual ほか.

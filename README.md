@@ -41,26 +41,26 @@ git clone <repository-url> SignalBridge
 
 ## 実装フェーズ
 
-- **Phase 0** — ローカルループバック: Unity の OSC 送受信を Python (`python-osc`) エコーで検証 (Flair 不要).
-- **Phase 1** — 実機 Flair へ送信し, ムーブ起動でアームが動けば本疎通 OK.
+- **Phase 0** — ローカルループバック: Unity の OSC 送受信を Python (`python-osc`) エコーで検証 (Flair 不要). **2026-06-05 確認済み**.
+- **Phase 1** — 実機 Flair へ送信し, ムーブ起動でアームが動けば本疎通 OK (OSC 仕様確定待ち).
 - **Phase 2 (任意)** — Flair の Data Output (OSC XYZ) を Unity で受信して返り路を確認.
 
-### Phase 0 用 Python OSC エコーサーバ
+### Phase 0 用 OSC エコーサーバ (`tools/osc_echo.py`)
 
-```python
-# pip install python-osc
-from pythonosc.dispatcher import Dispatcher
-from pythonosc.osc_server import BlockingOSCUDPServer
+Unity の送信を別プロセスで受けて送り返す検証ツール. 同一 PC でのポート衝突を避けるため送受で別ポートにする.
 
-def handler(addr, *args):
-    print(f"received: {addr} {args}")
+```sh
+# 初回のみ: venv 作成 + 依存導入
+python -m venv tools/.venv
+tools/.venv/Scripts/python -m pip install -r tools/requirements.txt   # Windows
+tools/.venv/bin/python    -m pip install -r tools/requirements.txt    # macOS/Linux
 
-disp = Dispatcher()
-disp.set_default_handler(handler)
-server = BlockingOSCUDPServer(("0.0.0.0", 7001), disp)
-print("listening on udp/7001 ...")
-server.serve_forever()
+# エコーサーバ起動 (既定: 9000 で受信し 9001 へ返送)
+tools/.venv/Scripts/python tools/osc_echo.py
 ```
+
+Unity 側は Play 後, 宛先 Port `9000` / 受信 Port `9001` / Listen を ON にして Send.
+サーバが `RECV /ping [1] -> echo to 127.0.0.1:9001`, Unity が `RECV /ping ,i args=[1]` を出せば疎通 OK.
 
 ## コード構成
 
@@ -85,6 +85,6 @@ Assets/SignalBridge/
 ## 開発状況
 
 - [x] Unity 6.4 プロジェクト作成
-- [ ] OSC スクリプト群の実装 (`Assets/SignalBridge/Osc/`)
-- [ ] Phase 0 (ローカルループバック検証)
+- [x] OSC スクリプト群の実装 (`Assets/SignalBridge/Osc/`)
+- [x] Phase 0 (ローカルループバック検証) — 自己ループバック / プロセス間ともに確認済み (2026-06-05)
 - [ ] Phase 1 (実機 Flair 送信) — OSC アドレス仕様の確定待ち

@@ -63,6 +63,12 @@ crashlog*.txt
 # --- Claude Code (ローカル設定) ---
 .claude/
 
+# --- Python (Phase 0 検証ツール tools/ 用) ---
+# venv 本体はコミットしない (再現は tools/requirements.txt から). スクリプト自体は追跡する.
+tools/.venv/
+__pycache__/
+*.pyc
+
 # --- OS 生成ファイル ---
 # macOS
 .DS_Store

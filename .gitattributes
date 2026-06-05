@@ -29,6 +29,7 @@
 
 # --- OS 固有スクリプト ---
 *.sh        text eol=lf
+*.py        text eol=lf
 *.bat       text eol=crlf
 *.cmd       text eol=crlf
 *.ps1       text eol=crlf
