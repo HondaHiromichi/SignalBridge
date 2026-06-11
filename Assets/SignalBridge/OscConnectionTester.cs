@@ -33,6 +33,13 @@ public class OscConnectionTester : MonoBehaviour
     [SerializeField] private Toggle listenToggle;
     [SerializeField] private InputField listenPortField;
 
+    [Header("プリセット")]
+    [SerializeField] private InputField presetNameField;
+    [SerializeField] private Dropdown presetDropdown;
+    [SerializeField] private Button presetSaveButton;
+    [SerializeField] private Button presetLoadButton;
+    [SerializeField] private Button presetDeleteButton;
+
     [Header("ログ表示")]
     [SerializeField] private Text logText;
     [SerializeField] private ScrollRect logScrollRect;
@@ -48,6 +55,9 @@ public class OscConnectionTester : MonoBehaviour
     private readonly ConcurrentQueue<string> listenErrors = new ConcurrentQueue<string>();
 
     private readonly List<string> logLines = new List<string>();
+
+    // 保存済みプリセット (Dropdown の表示順と一致させる. PlayerPrefs と同期).
+    private readonly List<OscPreset> presets = new List<OscPreset>();
 
     #endregion
 
@@ -70,6 +80,21 @@ public class OscConnectionTester : MonoBehaviour
         {
             listenToggle.onValueChanged.AddListener(OnListenToggled);
         }
+        if (presetSaveButton != null)
+        {
+            presetSaveButton.onClick.AddListener(OnPresetSaveClicked);
+        }
+        if (presetLoadButton != null)
+        {
+            presetLoadButton.onClick.AddListener(OnPresetLoadClicked);
+        }
+        if (presetDeleteButton != null)
+        {
+            presetDeleteButton.onClick.AddListener(OnPresetDeleteClicked);
+        }
+
+        ReloadPresets();
+        RefreshPresetDropdown(null);
 
         WarnIfUnassigned();
     }
@@ -98,6 +123,18 @@ public class OscConnectionTester : MonoBehaviour
         if (listenToggle != null)
         {
             listenToggle.onValueChanged.RemoveListener(OnListenToggled);
+        }
+        if (presetSaveButton != null)
+        {
+            presetSaveButton.onClick.RemoveListener(OnPresetSaveClicked);
+        }
+        if (presetLoadButton != null)
+        {
+            presetLoadButton.onClick.RemoveListener(OnPresetLoadClicked);
+        }
+        if (presetDeleteButton != null)
+        {
+            presetDeleteButton.onClick.RemoveListener(OnPresetDeleteClicked);
         }
     }
 
@@ -168,6 +205,64 @@ public class OscConnectionTester : MonoBehaviour
     private void OnListenerError(Exception ex)
     {
         listenErrors.Enqueue(ex.Message);
+    }
+
+    // Save ボタン押下: 名前欄の名称で現在の送信設定をプリセットとして保存する (同名は上書き).
+    private void OnPresetSaveClicked()
+    {
+        string name = presetNameField != null ? presetNameField.text.Trim() : string.Empty;
+        if (string.IsNullOrEmpty(name))
+        {
+            AppendLog("ERROR(preset): 名前を入力してください.");
+            return;
+        }
+
+        OscPreset preset = BuildPresetFromUI(name);
+        int existing = presets.FindIndex(p => p.name == name);
+        if (existing >= 0)
+        {
+            presets[existing] = preset;
+        }
+        else
+        {
+            presets.Add(preset);
+        }
+
+        OscPresetStore.SaveAll(presets);
+        RefreshPresetDropdown(name);
+        AppendLog($"PRESET save '{name}'");
+    }
+
+    // Load ボタン押下: Dropdown で選択中のプリセットを各入力欄へ反映する.
+    private void OnPresetLoadClicked()
+    {
+        if (!TryGetSelectedPreset(out OscPreset preset))
+        {
+            AppendLog("ERROR(preset): 読み込むプリセットがありません.");
+            return;
+        }
+
+        ApplyPresetToUI(preset);
+        if (presetNameField != null)
+        {
+            presetNameField.text = preset.name;
+        }
+        AppendLog($"PRESET load '{preset.name}'");
+    }
+
+    // Delete ボタン押下: Dropdown で選択中のプリセットを削除する.
+    private void OnPresetDeleteClicked()
+    {
+        if (!TryGetSelectedPreset(out OscPreset preset))
+        {
+            AppendLog("ERROR(preset): 削除するプリセットがありません.");
+            return;
+        }
+
+        presets.Remove(preset);
+        OscPresetStore.SaveAll(presets);
+        RefreshPresetDropdown(null);
+        AppendLog($"PRESET delete '{preset.name}'");
     }
 
     #endregion
@@ -358,11 +453,106 @@ public class OscConnectionTester : MonoBehaviour
         }
     }
 
+    // 現在の各入力欄から送信設定プリセットを組み立てる.
+    private OscPreset BuildPresetFromUI(string name)
+    {
+        return new OscPreset
+        {
+            name = name,
+            ip = destinationIpField != null ? destinationIpField.text : string.Empty,
+            port = destinationPortField != null ? destinationPortField.text : string.Empty,
+            address = oscAddressField != null ? oscAddressField.text : string.Empty,
+            typeTags = argTypeField != null ? argTypeField.text : string.Empty,
+            values = argValueField != null ? argValueField.text : string.Empty,
+        };
+    }
+
+    // プリセットの内容を各入力欄へ反映する.
+    private void ApplyPresetToUI(OscPreset preset)
+    {
+        if (destinationIpField != null)
+        {
+            destinationIpField.text = preset.ip;
+        }
+        if (destinationPortField != null)
+        {
+            destinationPortField.text = preset.port;
+        }
+        if (oscAddressField != null)
+        {
+            oscAddressField.text = preset.address;
+        }
+        if (argTypeField != null)
+        {
+            argTypeField.text = preset.typeTags;
+        }
+        if (argValueField != null)
+        {
+            argValueField.text = preset.values;
+        }
+    }
+
+    // Dropdown で選択中のプリセットを取り出す. 件数 0 や範囲外なら false.
+    private bool TryGetSelectedPreset(out OscPreset preset)
+    {
+        preset = null;
+        if (presetDropdown == null || presets.Count == 0)
+        {
+            return false;
+        }
+
+        int index = presetDropdown.value;
+        if (index < 0 || index >= presets.Count)
+        {
+            return false;
+        }
+
+        preset = presets[index];
+        return true;
+    }
+
+    // PlayerPrefs から保存済みプリセットを読み直してメモリへ反映する.
+    private void ReloadPresets()
+    {
+        presets.Clear();
+        presets.AddRange(OscPresetStore.LoadAll());
+    }
+
+    // 現在の presets を Dropdown の選択肢へ反映する. selectName 指定時はその項目を選択状態にする.
+    private void RefreshPresetDropdown(string selectName)
+    {
+        if (presetDropdown == null)
+        {
+            return;
+        }
+
+        List<string> names = new List<string>(presets.Count);
+        foreach (OscPreset preset in presets)
+        {
+            names.Add(preset.name);
+        }
+
+        presetDropdown.ClearOptions();
+        presetDropdown.AddOptions(names);
+
+        if (!string.IsNullOrEmpty(selectName))
+        {
+            int index = presets.FindIndex(p => p.name == selectName);
+            if (index >= 0)
+            {
+                presetDropdown.value = index;
+            }
+        }
+        presetDropdown.RefreshShownValue();
+    }
+
     // Inspector 参照の未設定を起動時に警告する (致命ではないため LogWarning).
     private void WarnIfUnassigned()
     {
         if (destinationIpField == null || destinationPortField == null || oscAddressField == null
-            || sendButton == null || listenToggle == null || listenPortField == null || logText == null)
+            || sendButton == null || listenToggle == null || listenPortField == null || logText == null
+            || presetNameField == null || presetDropdown == null || presetSaveButton == null
+            || presetLoadButton == null || presetDeleteButton == null)
         {
             Debug.LogWarning("OscConnectionTester: Inspector の UI 参照が未設定です. シーン構築後にワイヤリングしてください.");
         }
