@@ -61,5 +61,86 @@ namespace SignalBridge.Osc.Tests
         }
 
         #endregion
+
+        #region 拡張型 (h/d/T/F/b)
+
+        [Test]
+        public void EncodeDecode_Int64AndDouble_RoundTrips()
+        {
+            byte[] bytes = MinimalOsc.Encode("/v", 9000000000L, 1.25d);
+            OscMessage message = MinimalOsc.Decode(bytes, bytes.Length);
+
+            Assert.AreEqual(",hd", message.TypeTags);
+            Assert.AreEqual(9000000000L, message.Args[0]);
+            Assert.AreEqual(1.25d, message.Args[1]);
+        }
+
+        [Test]
+        public void EncodeDecode_Booleans_RoundTrips()
+        {
+            // T/F は型タグのみでデータ部を持たない.
+            byte[] bytes = MinimalOsc.Encode("/flags", true, false);
+            OscMessage message = MinimalOsc.Decode(bytes, bytes.Length);
+
+            Assert.AreEqual(",TF", message.TypeTags);
+            Assert.AreEqual(2, message.Args.Length);
+            Assert.AreEqual(true, message.Args[0]);
+            Assert.AreEqual(false, message.Args[1]);
+        }
+
+        [Test]
+        public void EncodeDecode_Blob_RoundTrips()
+        {
+            byte[] payload = { 0xDE, 0xAD, 0xBE, 0xEF, 0x01 };
+            byte[] bytes = MinimalOsc.Encode("/raw", payload);
+            OscMessage message = MinimalOsc.Decode(bytes, bytes.Length);
+
+            Assert.AreEqual(",b", message.TypeTags);
+            Assert.AreEqual(payload, (byte[])message.Args[0]);
+        }
+
+        #endregion
+
+        #region 寛容デコード (未知型タグ / データ不足)
+
+        [Test]
+        public void Decode_UnknownTypeTag_StopsAndMarksIncomplete()
+        {
+            // "/x" + ",iZ" (Z は未対応型) + int 7. 'i' まで読めて 'Z' で停止するはず.
+            byte[] bytes =
+            {
+                0x2F, 0x78, 0x00, 0x00,       // "/x"
+                0x2C, 0x69, 0x5A, 0x00,       // ",iZ"
+                0x00, 0x00, 0x00, 0x07        // int 7
+            };
+
+            OscMessage message = MinimalOsc.Decode(bytes, bytes.Length);
+
+            Assert.AreEqual("/x", message.Address);
+            Assert.AreEqual(",iZ", message.TypeTags);
+            Assert.IsFalse(message.IsComplete);
+            Assert.AreEqual(1, message.Args.Length);
+            Assert.AreEqual(7, message.Args[0]);
+        }
+
+        [Test]
+        public void Decode_TruncatedData_StopsWithoutThrowing()
+        {
+            // ",ii" だが int を 1 個分しかデータがない (2 個目は不足).
+            byte[] bytes =
+            {
+                0x2F, 0x78, 0x00, 0x00,       // "/x"
+                0x2C, 0x69, 0x69, 0x00,       // ",ii"
+                0x00, 0x00, 0x00, 0x05        // int 5 (2 個目のデータなし)
+            };
+
+            OscMessage message = MinimalOsc.Decode(bytes, bytes.Length);
+
+            Assert.IsFalse(message.IsComplete);
+            Assert.AreEqual(1, message.Args.Length);
+            Assert.AreEqual(5, message.Args[0]);
+        }
+
+        #endregion
     }
 }

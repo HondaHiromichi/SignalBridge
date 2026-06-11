@@ -2625,7 +2625,7 @@ MonoBehaviour:
     m_HorizontalOverflow: 0
     m_VerticalOverflow: 0
     m_LineSpacing: 1
-  m_Text: "\u5F15\u6570\u306E\u5024"
+  m_Text: "\u5024 (\u7A7A\u767D\u533A\u5207\u308A)"
 --- !u!222 &1417771087
 CanvasRenderer:
   m_ObjectHideFlags: 0
@@ -2925,7 +2925,7 @@ MonoBehaviour:
     m_HorizontalOverflow: 0
     m_VerticalOverflow: 0
     m_LineSpacing: 1
-  m_Text: "\u5F15\u6570\u306E\u578B i/f/s"
+  m_Text: "\u578B\u30BF\u30B0\u5217 (\u4F8B iif)"
 --- !u!222 &1518749812
 CanvasRenderer:
   m_ObjectHideFlags: 0

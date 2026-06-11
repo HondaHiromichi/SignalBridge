@@ -103,7 +103,8 @@ namespace SignalBridge.Osc
                 try
                 {
                     byte[] data = client.Receive(ref remote);
-                    OscMessage message = MinimalOsc.Decode(data, data.Length);
+                    // 送信元エンドポイント (ip:port) を付与してキューに積む. Decode は寛容で例外を投げない.
+                    OscMessage message = MinimalOsc.Decode(data, data.Length).WithSource(remote.ToString());
                     received.Enqueue(message);
                 }
                 catch (Exception ex)

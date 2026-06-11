@@ -174,28 +174,92 @@ public class OscConnectionTester : MonoBehaviour
 
     #region Private メソッド
 
-    // UI の型 (i/f/s) と値から OSC 引数配列を生成する. 型が空なら引数なし.
+    // UI の型タグ列 (例 "iif") と値 (空白区切り) から OSC 引数配列を生成する. 型タグが空なら引数なし.
+    // 対応型: i(int) h(int64) f(float) d(double) s(string) b(blob=hex) T(true) F(false).
+    // T/F は型タグのみで値を消費しない. 文字列(s)は空白を含められない (1 トークン = 1 値).
     private object[] ParseArguments()
     {
-        string type = argTypeField != null ? argTypeField.text.Trim() : string.Empty;
-        if (string.IsNullOrEmpty(type))
+        string tags = argTypeField != null ? argTypeField.text.Trim() : string.Empty;
+        if (string.IsNullOrEmpty(tags))
         {
             return Array.Empty<object>();
         }
 
-        string value = argValueField != null ? argValueField.text : string.Empty;
+        string valueText = argValueField != null ? argValueField.text.Trim() : string.Empty;
+        string[] tokens = valueText.Length == 0
+            ? Array.Empty<string>()
+            : valueText.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
 
-        switch (type)
+        List<object> args = new List<object>(tags.Length);
+        int tokenIndex = 0;
+
+        foreach (char tag in tags)
         {
-            case "i":
-                return new object[] { int.Parse(value, CultureInfo.InvariantCulture) };
-            case "f":
-                return new object[] { float.Parse(value, CultureInfo.InvariantCulture) };
-            case "s":
-                return new object[] { value };
-            default:
-                throw new FormatException("引数の型は i / f / s のいずれかを指定してください: " + type);
+            switch (tag)
+            {
+                case 'T':
+                    args.Add(true);
+                    break;
+                case 'F':
+                    args.Add(false);
+                    break;
+                case 'i':
+                    args.Add(int.Parse(NextToken(tokens, ref tokenIndex, tag), CultureInfo.InvariantCulture));
+                    break;
+                case 'h':
+                    args.Add(long.Parse(NextToken(tokens, ref tokenIndex, tag), CultureInfo.InvariantCulture));
+                    break;
+                case 'f':
+                    args.Add(float.Parse(NextToken(tokens, ref tokenIndex, tag), CultureInfo.InvariantCulture));
+                    break;
+                case 'd':
+                    args.Add(double.Parse(NextToken(tokens, ref tokenIndex, tag), CultureInfo.InvariantCulture));
+                    break;
+                case 's':
+                    args.Add(NextToken(tokens, ref tokenIndex, tag));
+                    break;
+                case 'b':
+                    args.Add(HexToBytes(NextToken(tokens, ref tokenIndex, tag)));
+                    break;
+                default:
+                    throw new FormatException("未対応の型タグです (使用可能: i/h/f/d/s/b/T/F): " + tag);
+            }
         }
+
+        if (tokenIndex < tokens.Length)
+        {
+            throw new FormatException(
+                $"値の数が型タグより多いです (型タグ '{tags}' が必要とする値: {tokenIndex} 個, 入力値: {tokens.Length} 個).");
+        }
+
+        return args.ToArray();
+    }
+
+    // 値トークンを 1 つ取り出す. 不足していれば例外.
+    private static string NextToken(string[] tokens, ref int index, char tag)
+    {
+        if (index >= tokens.Length)
+        {
+            throw new FormatException($"型タグ '{tag}' に対応する値が足りません. 値を空白区切りで指定してください.");
+        }
+        return tokens[index++];
+    }
+
+    // hex 文字列 (例 "DEADBEEF") を byte[] に変換する (blob 引数用).
+    private static byte[] HexToBytes(string hex)
+    {
+        hex = hex.Replace(" ", string.Empty);
+        if (hex.Length % 2 != 0)
+        {
+            throw new FormatException("blob(b) の hex は偶数桁で指定してください: " + hex);
+        }
+
+        byte[] bytes = new byte[hex.Length / 2];
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+        }
+        return bytes;
     }
 
     private int ParsePort(string text)
@@ -210,6 +274,13 @@ public class OscConnectionTester : MonoBehaviour
     private string FormatMessage(OscMessage message)
     {
         StringBuilder builder = new StringBuilder();
+
+        // 送信元 (受信時のみ). 未知仕様の解析に使う.
+        if (!string.IsNullOrEmpty(message.Source))
+        {
+            builder.Append("from ").Append(message.Source).Append(' ');
+        }
+
         builder.Append(message.Address);
         builder.Append(' ');
         builder.Append(message.TypeTags);
@@ -223,12 +294,34 @@ public class OscConnectionTester : MonoBehaviour
                 {
                     builder.Append(", ");
                 }
-                builder.Append(Convert.ToString(message.Args[i], CultureInfo.InvariantCulture));
+                builder.Append(FormatArg(message.Args[i]));
             }
             builder.Append(']');
         }
 
+        // 未知の型タグ / データ不足で途中停止した場合の注記.
+        if (!message.IsComplete)
+        {
+            builder.Append(" [未デコード: 未知の型タグ or データ不足]");
+        }
+
+        // 生バイト列 (受信時のみ). 仕様不明の内容も hex で確認できるようにする.
+        if (message.Raw != null)
+        {
+            builder.Append(" hex=").Append(ToHex(message.Raw));
+        }
+
         return builder.ToString();
+    }
+
+    // 引数 1 個を表示用文字列にする. blob(byte[]) は 0x + hex で表す.
+    private string FormatArg(object arg)
+    {
+        if (arg is byte[] blob)
+        {
+            return "0x" + ToHex(blob);
+        }
+        return Convert.ToString(arg, CultureInfo.InvariantCulture);
     }
 
     private string ToHex(byte[] data)
