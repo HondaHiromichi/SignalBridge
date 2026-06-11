@@ -29,6 +29,10 @@ public class OscConnectionTester : MonoBehaviour
     [SerializeField] private InputField argValueField;
     [SerializeField] private Button sendButton;
 
+    [Header("Raw 送信")]
+    [SerializeField] private InputField rawHexField;
+    [SerializeField] private Button sendRawButton;
+
     [Header("受信設定")]
     [SerializeField] private Toggle listenToggle;
     [SerializeField] private InputField listenPortField;
@@ -76,6 +80,10 @@ public class OscConnectionTester : MonoBehaviour
         {
             sendButton.onClick.AddListener(OnSendClicked);
         }
+        if (sendRawButton != null)
+        {
+            sendRawButton.onClick.AddListener(OnSendRawClicked);
+        }
         if (listenToggle != null)
         {
             listenToggle.onValueChanged.AddListener(OnListenToggled);
@@ -119,6 +127,10 @@ public class OscConnectionTester : MonoBehaviour
         if (sendButton != null)
         {
             sendButton.onClick.RemoveListener(OnSendClicked);
+        }
+        if (sendRawButton != null)
+        {
+            sendRawButton.onClick.RemoveListener(OnSendRawClicked);
         }
         if (listenToggle != null)
         {
@@ -175,6 +187,25 @@ public class OscConnectionTester : MonoBehaviour
         catch (Exception ex)
         {
             AppendLog("ERROR(send): " + ex.Message);
+        }
+    }
+
+    // Send Raw ボタン押下: hex 入力を OSC エンコードを介さず, そのままバイト列として送信する.
+    // 宛先 IP/Port は送信設定欄を流用する. 仕様不明の生バイト列を直接試すための経路.
+    private void OnSendRawClicked()
+    {
+        try
+        {
+            string host = destinationIpField != null ? destinationIpField.text : string.Empty;
+            int port = ParsePort(destinationPortField != null ? destinationPortField.text : string.Empty);
+            byte[] data = HexToBytes(rawHexField != null ? rawHexField.text : string.Empty);
+            int sent = sender.Send(host, port, data);
+
+            AppendLog($"SEND(raw) -> {host}:{port} ({sent} bytes) hex={ToHex(data)}");
+        }
+        catch (Exception ex)
+        {
+            AppendLog("ERROR(send raw): " + ex.Message);
         }
     }
 
@@ -550,7 +581,8 @@ public class OscConnectionTester : MonoBehaviour
     private void WarnIfUnassigned()
     {
         if (destinationIpField == null || destinationPortField == null || oscAddressField == null
-            || sendButton == null || listenToggle == null || listenPortField == null || logText == null
+            || sendButton == null || rawHexField == null || sendRawButton == null
+            || listenToggle == null || listenPortField == null || logText == null
             || presetNameField == null || presetDropdown == null || presetSaveButton == null
             || presetLoadButton == null || presetDeleteButton == null)
         {
