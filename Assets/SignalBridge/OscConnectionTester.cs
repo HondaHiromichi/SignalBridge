@@ -17,6 +17,10 @@ public class OscConnectionTester : MonoBehaviour
     private const int MaxLogLines = 200;
     private const string TimestampFormat = "HH:mm:ss.fff";
 
+    // ログ行の色分け (RichText). 受信は緑, 例外は赤. それ以外は Text の既定色.
+    private const string ColorRecv = "3ddc97";
+    private const string ColorError = "f0566b";
+
     #endregion
 
     #region SerializeField
@@ -464,7 +468,18 @@ public class OscConnectionTester : MonoBehaviour
     private void AppendLog(string line)
     {
         string timestamped = $"[{DateTime.Now.ToString(TimestampFormat, CultureInfo.InvariantCulture)}] {line}";
-        logLines.Add(timestamped);
+
+        // 受信 (RECV) は緑, 例外 (ERROR) は赤で色分けする (logText の RichText が有効な前提).
+        string display = timestamped;
+        if (line.StartsWith("RECV", StringComparison.Ordinal))
+        {
+            display = $"<color=#{ColorRecv}>{timestamped}</color>";
+        }
+        else if (line.StartsWith("ERROR", StringComparison.Ordinal))
+        {
+            display = $"<color=#{ColorError}>{timestamped}</color>";
+        }
+        logLines.Add(display);
 
         // 古い行を間引いて表示量を抑える.
         if (logLines.Count > MaxLogLines)
