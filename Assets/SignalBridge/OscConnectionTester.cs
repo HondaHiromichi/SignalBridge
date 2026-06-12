@@ -21,6 +21,15 @@ public class OscConnectionTester : MonoBehaviour
     private const string ColorRecv = "3ddc97";
     private const string ColorError = "f0566b";
 
+    // フィルタチップ / タブ / ステータスピルの配色.
+    private const string ColorAccent = "4f8cff";
+    private const string ColorChipBg = "1a1f27";
+    private const string ColorChipOnText = "ffffff";
+    private const string ColorChipOffText = "8b96a5";
+    private const string ColorTabInactive = "5f6b7a";
+    private const string ColorDotOn = "3ddc97";
+    private const string ColorDotOff = "5f6b7a";
+
     #endregion
 
     #region SerializeField
@@ -52,6 +61,24 @@ public class OscConnectionTester : MonoBehaviour
     [SerializeField] private Text logText;
     [SerializeField] private ScrollRect logScrollRect;
 
+    [Header("ログ ツールバー")]
+    [SerializeField] private Button clearButton;
+    [SerializeField] private Button filterAllButton;
+    [SerializeField] private Button filterSendButton;
+    [SerializeField] private Button filterRecvButton;
+    [SerializeField] private Button filterErrorButton;
+
+    [Header("タブ")]
+    [SerializeField] private Button logTabButton;
+    [SerializeField] private Button monitorTabButton;
+    [SerializeField] private Text logTabText;
+    [SerializeField] private Text monitorTabText;
+    [SerializeField] private GameObject monitorPanel;
+
+    [Header("ステータス")]
+    [SerializeField] private Text statusText;
+    [SerializeField] private Image statusDot;
+
     #endregion
 
     #region フィールド
@@ -62,10 +89,25 @@ public class OscConnectionTester : MonoBehaviour
     // 受信スレッドで発生した例外メッセージをメインスレッドへ渡すためのキュー.
     private readonly ConcurrentQueue<string> listenErrors = new ConcurrentQueue<string>();
 
-    private readonly List<string> logLines = new List<string>();
+    // ログ行を種別付きで保持する (フィルタ表示のため). Display は色分け済みの表示文字列.
+    private readonly List<LogEntry> logEntries = new List<LogEntry>();
+    private LogFilter currentFilter = LogFilter.All;
 
     // 保存済みプリセット (Dropdown の表示順と一致させる. PlayerPrefs と同期).
     private readonly List<OscPreset> presets = new List<OscPreset>();
+
+    // ログ行の種別 (色分け / フィルタ用).
+    private enum LogKind { Other, Send, Recv, Error }
+
+    // ログのフィルタ種別 (チップに対応).
+    private enum LogFilter { All, Send, Recv, Error }
+
+    // 1 ログ行 (種別 + 表示文字列).
+    private sealed class LogEntry
+    {
+        public LogKind Kind;
+        public string Display;
+    }
 
     #endregion
 
@@ -104,9 +146,40 @@ public class OscConnectionTester : MonoBehaviour
         {
             presetDeleteButton.onClick.AddListener(OnPresetDeleteClicked);
         }
+        if (clearButton != null)
+        {
+            clearButton.onClick.AddListener(OnClearClicked);
+        }
+        if (filterAllButton != null)
+        {
+            filterAllButton.onClick.AddListener(OnFilterAllClicked);
+        }
+        if (filterSendButton != null)
+        {
+            filterSendButton.onClick.AddListener(OnFilterSendClicked);
+        }
+        if (filterRecvButton != null)
+        {
+            filterRecvButton.onClick.AddListener(OnFilterRecvClicked);
+        }
+        if (filterErrorButton != null)
+        {
+            filterErrorButton.onClick.AddListener(OnFilterErrorClicked);
+        }
+        if (logTabButton != null)
+        {
+            logTabButton.onClick.AddListener(OnLogTabClicked);
+        }
+        if (monitorTabButton != null)
+        {
+            monitorTabButton.onClick.AddListener(OnMonitorTabClicked);
+        }
 
         ReloadPresets();
         RefreshPresetDropdown(null);
+        UpdateFilterChips();
+        ShowMonitor(false);
+        UpdateStatus(false);
 
         WarnIfUnassigned();
     }
@@ -151,6 +224,34 @@ public class OscConnectionTester : MonoBehaviour
         if (presetDeleteButton != null)
         {
             presetDeleteButton.onClick.RemoveListener(OnPresetDeleteClicked);
+        }
+        if (clearButton != null)
+        {
+            clearButton.onClick.RemoveListener(OnClearClicked);
+        }
+        if (filterAllButton != null)
+        {
+            filterAllButton.onClick.RemoveListener(OnFilterAllClicked);
+        }
+        if (filterSendButton != null)
+        {
+            filterSendButton.onClick.RemoveListener(OnFilterSendClicked);
+        }
+        if (filterRecvButton != null)
+        {
+            filterRecvButton.onClick.RemoveListener(OnFilterRecvClicked);
+        }
+        if (filterErrorButton != null)
+        {
+            filterErrorButton.onClick.RemoveListener(OnFilterErrorClicked);
+        }
+        if (logTabButton != null)
+        {
+            logTabButton.onClick.RemoveListener(OnLogTabClicked);
+        }
+        if (monitorTabButton != null)
+        {
+            monitorTabButton.onClick.RemoveListener(OnMonitorTabClicked);
         }
     }
 
@@ -223,16 +324,19 @@ public class OscConnectionTester : MonoBehaviour
                 int port = ParsePort(listenPortField != null ? listenPortField.text : string.Empty);
                 listener.Start(port);
                 AppendLog($"LISTEN start :{port}");
+                UpdateStatus(true);
             }
             else
             {
                 listener.Stop();
                 AppendLog("LISTEN stop");
+                UpdateStatus(false);
             }
         }
         catch (Exception ex)
         {
             AppendLog("ERROR(listen): " + ex.Message);
+            UpdateStatus(false);
         }
     }
 
@@ -298,6 +402,46 @@ public class OscConnectionTester : MonoBehaviour
         OscPresetStore.SaveAll(presets);
         RefreshPresetDropdown(null);
         AppendLog($"PRESET delete '{preset.name}'");
+    }
+
+    // Clear ボタン押下: ログを全消去する.
+    private void OnClearClicked()
+    {
+        logEntries.Clear();
+        RenderLog();
+    }
+
+    // フィルタチップ押下: 表示するログ種別を切り替える.
+    private void OnFilterAllClicked()
+    {
+        SetFilter(LogFilter.All);
+    }
+
+    private void OnFilterSendClicked()
+    {
+        SetFilter(LogFilter.Send);
+    }
+
+    private void OnFilterRecvClicked()
+    {
+        SetFilter(LogFilter.Recv);
+    }
+
+    private void OnFilterErrorClicked()
+    {
+        SetFilter(LogFilter.Error);
+    }
+
+    // ログ タブ押下: ログ表示へ切り替える.
+    private void OnLogTabClicked()
+    {
+        ShowMonitor(false);
+    }
+
+    // モニタ タブ押下: モニタ表示 (Phase 2 用プレースホルダ) へ切り替える.
+    private void OnMonitorTabClicked()
+    {
+        ShowMonitor(true);
     }
 
     #endregion
@@ -464,39 +608,158 @@ public class OscConnectionTester : MonoBehaviour
         return builder.ToString();
     }
 
-    // タイムスタンプ付きで 1 行ログを追加し, 末尾を表示する.
+    // タイムスタンプ付きで 1 行ログを追加し, 種別を判定して保持・再描画する.
     private void AppendLog(string line)
     {
         string timestamped = $"[{DateTime.Now.ToString(TimestampFormat, CultureInfo.InvariantCulture)}] {line}";
 
-        // 受信 (RECV) は緑, 例外 (ERROR) は赤で色分けする (logText の RichText が有効な前提).
+        // 行頭から種別を判定. 受信 (RECV) は緑, 例外 (ERROR) は赤で色分けする (RichText 前提).
+        LogKind kind = LogKind.Other;
         string display = timestamped;
         if (line.StartsWith("RECV", StringComparison.Ordinal))
         {
+            kind = LogKind.Recv;
             display = $"<color=#{ColorRecv}>{timestamped}</color>";
         }
         else if (line.StartsWith("ERROR", StringComparison.Ordinal))
         {
+            kind = LogKind.Error;
             display = $"<color=#{ColorError}>{timestamped}</color>";
         }
-        logLines.Add(display);
+        else if (line.StartsWith("SEND", StringComparison.Ordinal))
+        {
+            kind = LogKind.Send;
+        }
+
+        logEntries.Add(new LogEntry { Kind = kind, Display = display });
 
         // 古い行を間引いて表示量を抑える.
-        if (logLines.Count > MaxLogLines)
+        if (logEntries.Count > MaxLogLines)
         {
-            logLines.RemoveRange(0, logLines.Count - MaxLogLines);
+            logEntries.RemoveRange(0, logEntries.Count - MaxLogLines);
         }
 
+        RenderLog();
+    }
+
+    // 現在のフィルタに合致する行だけを logText へ反映し, 末尾へスクロールする.
+    private void RenderLog()
+    {
         if (logText != null)
         {
-            logText.text = string.Join("\n", logLines);
+            StringBuilder builder = new StringBuilder();
+            foreach (LogEntry entry in logEntries)
+            {
+                if (!IsVisibleUnderFilter(entry.Kind))
+                {
+                    continue;
+                }
+                if (builder.Length > 0)
+                {
+                    builder.Append('\n');
+                }
+                builder.Append(entry.Display);
+            }
+            logText.text = builder.ToString();
         }
 
-        // 末尾 (最新行) へスクロールする.
         if (logScrollRect != null)
         {
             logScrollRect.verticalNormalizedPosition = 0f;
         }
+    }
+
+    // 種別が現在のフィルタで表示対象か.
+    private bool IsVisibleUnderFilter(LogKind kind)
+    {
+        switch (currentFilter)
+        {
+            case LogFilter.Send:
+                return kind == LogKind.Send;
+            case LogFilter.Recv:
+                return kind == LogKind.Recv;
+            case LogFilter.Error:
+                return kind == LogKind.Error;
+            default:
+                return true;
+        }
+    }
+
+    // フィルタを設定し, チップの見た目とログ表示を更新する.
+    private void SetFilter(LogFilter filter)
+    {
+        currentFilter = filter;
+        UpdateFilterChips();
+        RenderLog();
+    }
+
+    // フィルタチップの選択状態を見た目に反映する (選択= アクセント, 非選択= 既定).
+    private void UpdateFilterChips()
+    {
+        SetChipActive(filterAllButton, currentFilter == LogFilter.All);
+        SetChipActive(filterSendButton, currentFilter == LogFilter.Send);
+        SetChipActive(filterRecvButton, currentFilter == LogFilter.Recv);
+        SetChipActive(filterErrorButton, currentFilter == LogFilter.Error);
+    }
+
+    private void SetChipActive(Button chip, bool active)
+    {
+        if (chip == null)
+        {
+            return;
+        }
+        Image bg = chip.GetComponent<Image>();
+        if (bg != null)
+        {
+            bg.color = HexColor(active ? ColorAccent : ColorChipBg);
+        }
+        Text label = chip.GetComponentInChildren<Text>();
+        if (label != null)
+        {
+            label.color = HexColor(active ? ColorChipOnText : ColorChipOffText);
+        }
+    }
+
+    // ログ / モニタ タブの表示切り替え. モニタは Phase 2 用のプレースホルダ.
+    private void ShowMonitor(bool monitor)
+    {
+        if (logScrollRect != null)
+        {
+            logScrollRect.gameObject.SetActive(!monitor);
+        }
+        if (monitorPanel != null)
+        {
+            monitorPanel.SetActive(monitor);
+        }
+        if (logTabText != null)
+        {
+            logTabText.color = HexColor(monitor ? ColorTabInactive : ColorAccent);
+        }
+        if (monitorTabText != null)
+        {
+            monitorTabText.color = HexColor(monitor ? ColorAccent : ColorTabInactive);
+        }
+    }
+
+    // ステータスピル (受信状態) を更新する.
+    private void UpdateStatus(bool listening)
+    {
+        if (statusText != null)
+        {
+            string port = listenPortField != null ? listenPortField.text : string.Empty;
+            statusText.text = listening ? $"Listen: ON :{port}" : "Listen: OFF";
+        }
+        if (statusDot != null)
+        {
+            statusDot.color = HexColor(listening ? ColorDotOn : ColorDotOff);
+        }
+    }
+
+    // "rrggbb" 形式の色を Color へ変換する.
+    private static Color HexColor(string hex)
+    {
+        ColorUtility.TryParseHtmlString("#" + hex, out Color c);
+        return c;
     }
 
     // 現在の各入力欄から送信設定プリセットを組み立てる.
